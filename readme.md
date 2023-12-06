@@ -14,6 +14,23 @@
 2. 这个是啥原理？
 > 我理解就是利用加密文件在绿盾环境电脑上可以正常打开。既然软件能直接打开，我通过程序也就能直接打开，将能打开的文件，通过字符流重新写入到磁盘，只要不随便移动，那就是解密状态
 
+3. 要是我的电脑没有D盘该怎么办？
+> 有些人的电脑可能没有D盘，参考如下示例，将本地监控目录修改为其他目录下,如下图示例将<br/>
+> `monitoredPath`为监控目录，`monitoredDecryptPath`为解密生成目录
+
+编辑`ldDecrypt.xml`,修改`<arguments></arguments>`内容修改为如下图
+```xml
+<service> <!--服务ID：启动、关闭、删除服务时，都是通过ID来操作的,与jar名称保持一致-->
+    <id>ldDecrypt</id> <!--服务名称,与jar名称保持一致-->
+    <name>ldDecrypt</name> <!-- 服务描述 -->
+    <description>这是一个测试WinSW的程序</description> <!--当前电脑配置了java环境变量，直接写成“java”就行；你也可以写成类似这样：D:\develop\jdk1.8\jre\bin\java-->
+    <executable>java</executable> <!--启动参数-->
+    <arguments>-jar -Dserver.port=980 -DmonitoredPath='C:/fileWatch/' -DmonitoredDecryptPath='C:/fileWatch_解密/' ldDecrypt.jar</arguments>
+    <logpath>%BASE%\log</logpath> <!-- 日志模式 -->
+    <logmode>rotate</logmode>
+</service>
+```
+
 ## 常用命令
 ```shell
 # 打包
@@ -99,3 +116,4 @@ POST 沙福林地址: `http://zlhy7:980/test/ldDecrypt`
 生成目录： D:/fileWatch_解密/
 ```
 2. 每解密一个目录可以换下一个目录，如果不更换，存在于原目录的文件会被再次解密
+3. 建议解密目录和生成目录的地址不要填写一样，避免造成文件覆盖
