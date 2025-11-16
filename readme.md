@@ -29,6 +29,7 @@
 ```shell
 # 设置阿里源镜像
 npm config set registry https://registry.npmmirror.com
+
 ```
 
 > [nodejs安装教程](https://shafulin.sxszck.com/znote/views/notes/installation_tutorial/nodejs.html#_1-%E4%B8%8B%E8%BD%BDnvm)
@@ -40,6 +41,9 @@ cd ldDecrypt
 
 # 安装依赖
 npm install
+
+# 安装打包工具
+npm install -g pkg
 
 # 全局安装（可选）
 npm link
