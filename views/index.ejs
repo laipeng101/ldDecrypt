@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天锐绿盾文件解密工具</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .section {
+            margin-bottom: 40px;
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+        }
+        h2 {
+            color: #333;
+            margin-top: 0;
+        }
+        .upload-area {
+            border: 2px dashed #ccc;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 20px;
+            border-radius: 4px;
+        }
+        .upload-area:hover {
+            border-color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>天锐绿盾文件解密工具</h1>
+        
+        <!-- API上传解密部分 -->
+        <div class="section">
+            <h2>方式一：文件上传解密</h2>
+            <form id="uploadForm" enctype="multipart/form-data">
+                <div class="upload-area">
+                    <p>点击选择文件或拖拽文件到此处</p>
+                    <input type="file" id="fileInput" name="file" required>
+                </div>
+                <button type="submit">上传并解密</button>
+            </form>
+        </div>
+        
+        <!-- 目录监控部分 -->
+        <div class="section">
+            <h2>方式二：目录监控解密</h2>
+            <div id="watchConfig">
+                <div class="form-group">
+                    <label for="sourceDir">监控目录:</label>
+                    <input type="text" id="sourceDir" placeholder="请输入要监控的目录路径">
+                </div>
+                <div class="form-group">
+                    <label for="targetDir">解密目录:</label>
+                    <input type="text" id="targetDir" placeholder="请输入解密文件存放目录路径">
+                </div>
+                <button id="startWatch">开始监控</button>
+                <button id="stopWatch">停止监控</button>
+                <div id="watchStatus"></div>
+            </div>
+            <p>监控指定目录中的新文件，并自动解密到目标目录。</p>
+            <a href="/monitor"><button>查看监控日志</button></a>
+        </div>
+        
+        <!-- 命令行使用说明 -->
+        <div class="section">
+            <h2>方式三：命令行解密</h2>
+            <p>您也可以通过命令行使用此工具：</p>
+            <pre>unlock &lt;源路径&gt; [目标路径]</pre>
+            <p>示例:</p>
+            <pre>unlock ./encrypted-file.txt
+unlock ./encrypted-dir/ ./decrypted-dir/</pre>
+        </div>
+    </div>
+
+    <script>
+        // 获取当前监控配置
+        function loadWatchConfig() {
+            fetch('/api/watch')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.watchers.length > 0) {
+                        const watcher = data.watchers[0];
+                        document.getElementById('sourceDir').value = watcher.sourceDir;
+                        document.getElementById('targetDir').value = watcher.targetDir;
+                        document.getElementById('watchStatus').innerHTML = `<p style="color: green;">正在监控: ${watcher.sourceDir} -> ${watcher.targetDir}</p>`;
+                    } else {
+                        document.getElementById('watchStatus').innerHTML = '<p style="color: orange;">当前未监控任何目录</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('获取监控配置失败:', error);
+                });
+        }
+
+        // 页面加载时获取监控配置
+        loadWatchConfig();
+
+        // 开始监控
+        document.getElementById('startWatch').addEventListener('click', function() {
+            const sourceDir = document.getElementById('sourceDir').value;
+            const targetDir = document.getElementById('targetDir').value;
+            
+            if (!sourceDir || !targetDir) {
+                alert('请填写完整的源目录和目标目录');
+                return;
+            }
+            
+            fetch('/api/watch', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ sourceDir, targetDir })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(data.message);
+                loadWatchConfig();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('配置监控目录过程中出现错误');
+            });
+        });
+
+        // 停止监控
+        document.getElementById('stopWatch').addEventListener('click', function() {
+            fetch('/api/watch', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ sourceDir: '', targetDir: '' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('sourceDir').value = '';
+                document.getElementById('targetDir').value = '';
+                document.getElementById('watchStatus').innerHTML = '<p style="color: orange;">已停止监控</p>';
+                alert('已停止所有监控');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('停止监控过程中出现错误');
+            });
+        });
+
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            const fileInput = document.getElementById('fileInput');
+            
+            if (!fileInput.files[0]) {
+                alert('请选择一个文件');
+                return;
+            }
+            
+            formData.append('file', fileInput.files[0]);
+            
+            fetch('/api/decrypt', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (response.ok) {
+                    const disposition = response.headers.get('Content-Disposition');
+                    let filename = 'decrypted-file';
+                    if (disposition && disposition.indexOf('attachment') !== -1) {
+                        const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+                        const matches = filenameRegex.exec(disposition);
+                        if (matches != null && matches[1]) { 
+                            filename = matches[1].replace(/['"]/g, '');
+                        }
+                    }
+                    
+                    return response.blob().then(blob => {
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        window.URL.revokeObjectURL(url);
+                    });
+                } else {
+                    throw new Error('解密失败');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('解密过程中出现错误');
+            });
+        });
+    </script>
+</body>
+</html>

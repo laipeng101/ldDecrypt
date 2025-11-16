@@ -1,119 +1,100 @@
-# 绿盾解密
-## 成品下载
-[gitee-releases](https://gitee.com/zlhy7/ldDecrypt/releases)
+# 天锐绿盾文件解密工具
 
-## 服务使用前提，一定要看
+这是一个基于 Node.js 的文件解密工具，它能够利用安装在电脑上的绿盾软件的权限，读取加密文件并保存为解密后的新文件。与原始版本相比，此工具提供了更多的交互方式和更友好的用户界面。
 
-- 电脑必须装有jdk环境，没有的可以[参考博文](https://zlhy7.gitee.io/znote/views/notes/installation_tutorial/jdk.html)
-- 电脑必须装有绿盾环境，否则无法解密成功
+- node版本：node v16.13.2
 
-## 回答一些提问
-1. 这个会被监控到么？
-> 我认为不会，因为全程都是在本地操作，都没有发起绿盾解密申请。如果比较怕，建议不要用。建议自用不外传。
+## 参考项目
 
-2. 这个是啥原理？
-> 我理解就是利用加密文件在绿盾环境电脑上可以正常打开。既然软件能直接打开，我通过程序也就能直接打开，将能打开的文件，通过字符流重新写入到磁盘，只要不随便移动，那就是解密状态
+[绿盾解密node版本](https://github.com/zlhy7/ldDecrypt/issues/7)
 
-3. 要是我的电脑没有D盘该怎么办？
-> 有些人的电脑可能没有D盘，参考如下示例，将本地监控目录修改为其他目录下,如下图示例将<br/>
-> `monitoredPath`为监控目录，`monitoredDecryptPath`为解密生成目录
+## 功能特性
 
-编辑`ldDecrypt.xml`,修改`<arguments></arguments>`内容修改为如下图
-```xml
-<service> <!--服务ID：启动、关闭、删除服务时，都是通过ID来操作的,与jar名称保持一致-->
-    <id>ldDecrypt</id> <!--服务名称,与jar名称保持一致-->
-    <name>ldDecrypt</name> <!-- 服务描述 -->
-    <description>这是一个测试WinSW的程序</description> <!--当前电脑配置了java环境变量，直接写成“java”就行；你也可以写成类似这样：D:\develop\jdk1.8\jre\bin\java-->
-    <executable>java</executable> <!--启动参数-->
-    <arguments>-jar -Dserver.port=980 -DmonitoredPath='C:/fileWatch/' -DmonitoredDecryptPath='C:/fileWatch_解密/' ldDecrypt.jar</arguments>
-    <logpath>%BASE%\log</logpath> <!-- 日志模式 -->
-    <logmode>rotate</logmode>
-</service>
-```
+1. **REST API 接口方式** - 通过 HTTP 接口上传文件并获取解密结果
+2. **本地目录监控方式** - 自动监控指定目录，当有新文件加入时自动解密到目标目录，并提供 Web 日志界面
+3. **命令行方式** - 提供命令行工具，可以直接解密文件或目录
 
-## 常用命令
-```shell
-# 打包
-mvnd clean package -Dmaven.test.skip=true
-# jar包方式启动
-java -jar -Dserver.port=980 ldDecrypt.jar
-```
+## 安装
 
-## 绿盾解密服务使用
-### 方式一：接口解密
+确保你的系统已经安装了 Node.js 和 npm。
+### 1.下载安装包
+下载并安装Node.js，全部默认配置就行
 
-1. 将**ldDecrypt.exe**,**ldDecrypt.jar**,**ldDecrypt.xml** 三个文件，放置到同名目录 `ldDecrypt`中，如图
-注意注意注意
-- **ldDecrypt.exe**文件不是双击运行的
-- **ldDecrypt.exe**文件不是双击运行的
-- **ldDecrypt.exe**文件不是双击运行的
+`直`[node-v16.16.0-x64.msi](https://repo.huaweicloud.com/nodejs/v16.16.0/node-v16.16.0-x64.msi)
 
-![pSrUlGV.png](https://s1.ax1x.com/2023/02/02/pSrUlGV.png)
+### 2.配置国内源
 
-2. 根据自己需要看是否要修改**ldDecrypt.xml**里的配置,一般不用改任何
-
-```xml
-<service> <!--服务ID：启动、关闭、删除服务时，都是通过ID来操作的,与jar名称保持一致-->
-   <id>ldDecrypt</id> <!--服务名称,与jar名称保持一致-->
-   <name>ldDecrypt</name> <!-- 服务描述 -->
-   <description>这是一个测试WinSW的程序</description> <!--当前电脑配置了java环境变量，直接写成“java”就行；你也可以写成类似这样：D:\develop\jdk1.8\jre\bin\java-->
-   <executable>java</executable> <!--启动参数-->
-   <arguments>-jar -Dserver.port=980 ldDecrypt.jar</arguments> <!-- 日志地址 %BASE% 就代表了服务安装时的目录-->
-   <logpath>%BASE%\log</logpath> <!-- 日志模式 -->
-   <logmode>rotate</logmode>
-</service>
-```
-
-3. 执行命令安装服务
+> 配置国内源方便安装模块
 
 ```shell
-# 删除服务,重新部署，第一次安装的话就不用执行该服务
-net stop ldDecrypt
-sc delete ldDecrypt
-# 安装服务
-ldDecrypt.exe install
-# 启动服务
-net start ldDecrypt
+# 设置阿里源镜像
+npm config set registry https://registry.npmmirror.com
 ```
 
-4. 接口调用
+> [nodejs安装教程](https://shafulin.sxszck.com/znote/views/notes/installation_tutorial/nodejs.html#_1-%E4%B8%8B%E8%BD%BDnvm)
 
-![pSrUbZj.png](https://s1.ax1x.com/2023/02/02/pSrUbZj.png)
+### 3.安装
+```bash
+# 克隆或下载项目后，进入项目目录
+cd ldDecrypt
 
-5. 接口文档
+# 安装依赖
+npm install
 
-POST 本地地址: `http://127.0.0.1:980/test/ldDecrypt`
-POST 沙福林地址: `http://zlhy7:980/test/ldDecrypt`
-
-请求参数
-
-| 名称         | 位置   | 类型           | 必选 | 说明                                       |
-| ------------ | ------ | -------------- | ---- | ------------------------------------------ |
-| body         | body   | object         | 否   |                                            |
-| » file       | body   | string(binary) | 否   | 待解密文件，允许上传多个                   |
-| » deleteFlag | body   | integer        | 否   | 0不删除，1删除，默认删除 转化后文件        |
-
-个人推荐直接用沙福林的服务就行了，省事，反正他电脑永不关机
-
-### 方式二：本地文件监控
-默认服务监控 `D:\fileWatch` 目录文件变化，会将解密文件放到`D:\fileWatch_解密`里 ,直接往监控目录里丢文件就完事了
-
-本地文件监控日志查看[http://127.0.0.1:980/page/localMonitorLog](http://127.0.0.1:980/page/localMonitorLog)
-### 方式三：自定义解密目录
-这种解密方式是为了弥补解密方式2的不足，因为还要将加密文件都挪到监控目录下才可以，如果可以自定义解密目录，那就不用挪动了
-1. 启动项目后浏览器访问 [http://127.0.0.1:980/page](http://127.0.0.1:980/page)
-2. 填写待解密的目录，以及生成解密文件的目录。
-3. 点击解密按钮,可查看日志输出
-
-### 方式三-注意事项
-1. 如果你选择的是根路径，解密目录里也写上根路径
-例如：在`D:/soft/`目录下有 `1.txt`,`目录2`,`目录3`,
-如果想在生成目录里也有`soft`这一级，就要自己在生成目录里填写
-```shell
-解密目录： D:/soft/
-生成目录： D:/fileWatch_解密/soft/
-# 如果不需要生成soft目录，则
-生成目录： D:/fileWatch_解密/
+# 全局安装（可选）
+npm link
 ```
-2. 每解密一个目录可以换下一个目录，如果不更换，存在于原目录的文件会被再次解密
-3. 建议解密目录和生成目录的地址不要填写一样，避免造成文件覆盖
+
+## 使用方法
+
+### 方式一：REST API 接口方式
+
+启动服务器：
+```bash
+npm start
+```
+
+访问 `http://localhost:3000`，使用网页界面上传文件进行解密。
+
+或者使用 curl 等工具直接调用 API：
+```bash
+curl -X POST -F "file=@加密文件.txt" http://localhost:3000/api/decrypt --output 解密文件.txt
+```
+
+### 方式二：本地目录监控方式
+
+启动服务器后访问 `http://localhost:3000` 可以动态配置监控目录，访问 `http://localhost:3000/monitor` 查看实时监控日志。
+
+默认情况下，工具会监控 `D:/fileWatch` 目录，并将解密后的文件放在 `D:/fileWatch_解密` 目录中。
+
+可以通过设置环境变量来自定义监控目录：
+```bash
+MONITORED_PATH=/path/to/watch MONITORED_DECRYPT_PATH=/path/to/decrypt npm start
+```
+
+也可以在网页界面动态配置监控目录，无需重启服务。
+
+### 方式三：命令行方式
+
+```
+# 解密单个文件
+unlock encrypted-file.txt decrypted-file.txt
+
+# 解密整个目录
+unlock encrypted-directory/ decrypted-directory/
+
+# 如果不指定输出路径，将在当前目录创建 uncode_* 目录
+unlock encrypted-file.txt
+```
+
+## 配置
+
+可以通过设置以下环境变量来配置程序行为：
+
+- `PORT`: 服务器监听端口（默认3000）
+- `MONITORED_PATH`: 被监控的目录路径（默认 D:/fileWatch）
+- `MONITORED_DECRYPT_PATH`: 解密文件输出目录（默认 D:/fileWatch_解密）
+
+## 注意事项
+
+请确保你有权解密文件，并且了解你所在地区关于解密加密文件的法律限制。使用本工具进行解密操作应遵守相关法律法规和企业政策，确保不会违反数据安全规定。

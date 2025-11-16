@@ -1,0 +1,30 @@
+{
+  "name": "ld-decrypt-tool",
+  "version": "1.0.0",
+  "description": "天锐绿盾文件解密工具 - 支持多种交互方式",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "bin": {
+    "unlock": "./bin/unlock.js"
+  },
+  "keywords": [
+    "decrypt",
+    "ldDecrypt",
+    "green-shield",
+    "file-decrypt"
+  ],
+  "author": "Developer",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "chokidar": "^3.5.3",
+    "multer": "^1.4.5-lts.1",
+    "ejs": "^3.1.8"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.20"
+  }
+}
