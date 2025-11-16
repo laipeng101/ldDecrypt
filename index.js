@@ -8,6 +8,17 @@ const { decryptFile, decryptDirectory } = require('./lib/decrypt');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 全局错误处理中间件，确保API错误返回JSON格式
+app.use((err, req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    // API请求返回JSON错误
+    res.status(500).json({ error: err.message || '服务器内部错误' });
+  } else {
+    // 非API请求使用默认错误处理
+    next(err);
+  }
+});
+
 // 配置模板引擎
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -22,6 +33,7 @@ const upload = multer({ dest: 'uploads/' });
 
 let logMessages = [];
 let currentWatchers = [];
+let watcherLogHeaders = new Map(); // 存储每个监控任务的日志头部信息
 
 // 添加日志消息的函数
 function addLog(message) {
@@ -38,7 +50,10 @@ function addLog(message) {
 
 // 主页路由
 app.get('/', (req, res) => {
-  res.render('index');
+  res.render('index', {
+    sourceDir: process.env.MONITORED_PATH || 'D:/fileWatch',
+    targetDir: process.env.MONITORED_DECRYPT_PATH || 'D:/fileWatch_解密'
+  });
 });
 
 // API解密端点
@@ -103,6 +118,12 @@ const server = app.listen(PORT, () => {
 const watchedDirs = new Map();
 
 function watchDirectory(sourceDir, targetDir) {
+  // 确保源目录存在，如果不存在则创建
+  if (!fs.existsSync(sourceDir)) {
+    fs.mkdirSync(sourceDir, { recursive: true });
+    addLog(`已创建源目录: ${sourceDir}`);
+  }
+  
   // 确保目标目录存在
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
@@ -126,7 +147,19 @@ function watchDirectory(sourceDir, targetDir) {
         }
         
         await decryptFile(filePath, targetPath);
-        addLog(`监控解密完成: ${filePath} -> ${targetPath}`);
+        
+        // 检查是否已经输出过监控目录信息
+        if (!watcherLogHeaders.has(sourceDir)) {
+          addLog(`监控目录：${sourceDir}, 输出目录：${targetDir}`);
+          watcherLogHeaders.set(sourceDir, true);
+        }
+        
+        // 获取文件大小并转换为MB
+        const stats = fs.statSync(filePath);
+        const fileSizeInMB = (stats.size / (1024 * 1024)).toFixed(2);
+        
+        // 输出相对路径和文件大小(MB)
+        addLog(`解密文件：${relativePath}, ${fileSizeInMB} MB`);
       } catch (error) {
         addLog(`监控解密失败: ${error.message}`);
       }
@@ -147,26 +180,64 @@ watchDirectory(monitoredPath, monitoredDecryptPath);
 
 // 动态配置监控目录
 app.post('/api/watch', (req, res) => {
-  const { sourceDir, targetDir } = req.body;
-  
-  if (!sourceDir || !targetDir) {
-    return res.status(400).json({ error: '源目录和目标目录不能为空' });
-  }
-  
-  // 停止所有当前监控
-  currentWatchers.forEach(watcherInfo => {
-    watcherInfo.watcher.close();
-    addLog(`停止监控目录: ${watcherInfo.sourceDir} -> ${watcherInfo.targetDir}`);
-  });
-  currentWatchers = [];
-  
-  // 开始新的监控
+  // 确保返回JSON格式的错误
   try {
-    watchDirectory(sourceDir, targetDir);
-    res.json({ message: `成功开始监控目录: ${sourceDir} -> ${targetDir}` });
+    const { sourceDir, targetDir } = req.body;
+    
+    // 如果sourceDir或targetDir为空，则停止所有监控
+    if (!sourceDir || !targetDir) {
+      // 停止所有当前监控
+      const closePromises = currentWatchers.map(watcherInfo => {
+        return watcherInfo.watcher.close().then(() => {
+          addLog(`停止监控目录: ${watcherInfo.sourceDir} -> ${watcherInfo.targetDir}`);
+        }).catch(err => {
+          addLog(`停止监控目录时出错: ${watcherInfo.sourceDir} -> ${watcherInfo.targetDir}, 错误: ${err.message}`);
+        });
+      });
+      
+      Promise.all(closePromises).then(() => {
+        currentWatchers = [];
+        res.json({ message: '已停止所有监控' });
+      }).catch(err => {
+        addLog(`停止监控时出现错误: ${err.message}`);
+        res.status(500).json({ error: `停止监控时出现错误: ${err.message}` });
+      });
+      return;
+    }
+    
+    // 停止所有当前监控
+    const closePromises = currentWatchers.map(watcherInfo => {
+      return watcherInfo.watcher.close().then(() => {
+        addLog(`停止监控目录: ${watcherInfo.sourceDir} -> ${watcherInfo.targetDir}`);
+      }).catch(err => {
+        addLog(`停止监控目录时出错: ${watcherInfo.sourceDir} -> ${watcherInfo.targetDir}, 错误: ${err.message}`);
+      });
+    });
+    
+    Promise.all(closePromises).then(() => {
+      currentWatchers = [];
+      // 清除对应的日志头部标记
+      watchedDirs.clear();
+      watcherLogHeaders.clear();
+      
+      // 开始新的监控
+      try {
+        watchDirectory(sourceDir, targetDir);
+        res.json({ message: `成功开始监控目录: ${sourceDir} -> ${targetDir}` });
+      } catch (error) {
+        addLog(`启动监控失败: ${error.message}`);
+        res.status(500).json({ error: `启动监控失败: ${error.message}` });
+      }
+    }).catch(err => {
+      addLog(`停止监控时出现错误: ${err.message}`);
+      res.status(500).json({ error: `停止监控时出现错误: ${err.message}` });
+    });
   } catch (error) {
-    addLog(`启动监控失败: ${error.message}`);
-    res.status(500).json({ error: `启动监控失败: ${error.message}` });
+    addLog(`配置监控目录过程中出现未捕获的错误: ${error.message}`);
+    // 确保即使在catch块中也返回JSON
+    if (!res.headersSent) {
+      res.status(500).json({ error: `配置监控目录过程中出现错误: ${error.message}` });
+    }
   }
 });
 
