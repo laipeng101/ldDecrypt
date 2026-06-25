@@ -1,0 +1,37 @@
+# 开发文件
+node_modules/
+nodemon.json
+.git/
+.gitignore
+
+# 构建产物
+dist/
+*.exe
+
+# 临时文件
+uploads/
+decrypted/
+*.tmp
+*.log
+
+# IDE配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 测试文件
+test/
+tests/
+*.test.js
+*.spec.js
+
+# 文档（npm会自动包含README.md和LICENSE）
+docs/
+*.md
+!README.md
+!LICENSE
+
+# 其他
+.DS_Store
+Thumbs.db

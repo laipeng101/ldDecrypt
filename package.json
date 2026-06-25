@@ -1,25 +1,46 @@
 {
-  "name": "ld-decrypt-tool",
-  "version": "1.0.0",
-  "description": "天锐绿盾文件解密工具 - 支持多种交互方式",
+  "name": "@zlhy7/ld-decrypt-tool",
+  "version": "1.0.2",
+  "description": "天锐绿盾文件解密工具 - 支持Web界面、命令行和目录监控多种交互方式",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "postinstall": "node scripts/install-service.js",
+    "preuninstall": "node scripts/uninstall-service.js",
     "build:win": "pkg . --targets node16-win-x64 --output ./dist/unlock-win.exe",
     "build:all": "pkg . --targets node16-win-x64,node16-linux-x64,node16-macos-x64 --out-path ./dist/"
   },
   "bin": {
-    "unlock": "./bin/unlock.js"
+    "ld-decrypt": "./bin/ld-decrypt.js",
+    "unlock": "./bin/unlock.js",
+    "ld-decrypt-tool": "./bin/ld-decrypt.js"
   },
   "keywords": [
     "decrypt",
     "ldDecrypt",
     "green-shield",
-    "file-decrypt"
+    "file-decrypt",
+    "lan-dun",
+    "天锐绿盾",
+    "解密",
+    "文件解密",
+    "encryption",
+    "security"
   ],
-  "author": "Developer",
+  "author": "zlhy7",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/zlhy7/ldDecrypt.git"
+  },
+  "homepage": "https://gitee.com/zlhy7/ldDecrypt",
+  "bugs": {
+    "url": "https://gitee.com/zlhy7/ldDecrypt/issues"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
   "dependencies": {
     "express": "^4.18.2",
     "chokidar": "^3.5.3",
@@ -29,5 +50,9 @@
   "devDependencies": {
     "nodemon": "^2.0.20",
     "pkg": "^5.8.1"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
   }
 }

@@ -14,40 +14,99 @@
 2. **本地目录监控方式** - 自动监控指定目录，当有新文件加入时自动解密到目标目录，并提供 Web 日志界面
 3. **命令行方式** - 提供命令行工具，可以直接解密文件或目录
 
-## 安装
+## 快速安装
 
-确保你的系统已经安装了 Node.js 和 npm。
-### 1.下载安装包
-下载并安装Node.js，全部默认配置就行
-
-`直`[node-v16.16.0-x64.msi](https://repo.huaweicloud.com/nodejs/v16.16.0/node-v16.16.0-x64.msi)
-
-### 2.配置国内源
-
-> 配置国内源方便安装模块
+### 方式一：npm全局安装（推荐）
 
 ```shell
-# 设置阿里源镜像
-npm config set registry https://registry.npmmirror.com
-
+npm install -g ld-decrypt-tool
 ```
 
-> [nodejs安装教程](https://shafulin.sxszck.com/znote/views/notes/installation_tutorial/nodejs.html#_1-%E4%B8%8B%E8%BD%BDnvm)
+**安装后自动启动服务，并配置开机自启。**
 
-### 3.安装
-```bash
-# 克隆或下载项目后，进入项目目录
+### 方式二：PowerShell一键安装
+
+**一键安装命令（复制到PowerShell执行）：**
+
+```powershell
+irm https://gitee.com/zlhy7/ldDecrypt/raw/node-v1.1/install.ps1 | iex
+```
+
+**或者下载脚本后运行：**
+
+```powershell
+# 下载安装脚本
+irm https://gitee.com/zlhy7/ldDecrypt/raw/node-v1.1/install.ps1 -OutFile install.ps1
+
+# 执行安装
+.\install.ps1
+```
+
+> 脚本会自动检测并安装Node.js环境，无需手动配置。
+
+### 方式三：手动安装
+
+```shell
+# 克隆项目
+git clone https://gitee.com/zlhy7/ldDecrypt.git
 cd ldDecrypt
 
 # 安装依赖
 npm install
 
-# 安装打包工具
-npm install -g pkg
-
-# 全局安装（可选）
+# 全局链接
 npm link
 ```
+
+## 开机自启说明
+
+- **npm全局安装**：安装后自动配置开机自启，服务随系统启动
+- **手动配置**：如需手动配置开机自启，以管理员身份运行：
+  ```shell
+  node scripts/setup-autostart.js
+  ```
+- **卸载**：卸载时会自动清理启动项
+  ```shell
+  npm uninstall -g ld-decrypt-tool
+  ```
+
+## 使用方法
+
+### Web界面模式
+
+```shell
+# 启动服务
+ld-decrypt
+# 或
+ld-decrypt-tool
+
+# 然后访问 http://localhost:3000
+```
+
+### 命令行模式
+
+```shell
+# 解密单个文件
+unlock ./encrypted-file.txt
+
+# 解密整个目录
+unlock ./encrypted-dir/ ./decrypted-dir/
+```
+
+### 开发模式
+
+```shell
+# 启动开发服务器（自动重启）
+npm run dev
+
+# 启动生产服务器
+npm start
+```
+
+## 服务使用前提
+
+- 电脑必须装有绿盾环境，否则无法解密成功
+- Node.js >= 14.0.0（安装脚本会自动检测和安装）
 
 ## 使用方法
 
