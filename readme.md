@@ -42,8 +42,12 @@ npm run globalinstall
 
 会：
 
-1. 注册全局命令：`ld-decrypt`、`ld-decrypt-tool`、`unlock`
-2. **仅 Windows**：配置开机自启 `ld-decrypt-tool`
+1. `npm install -g .` 注册全局命令：`ld-decrypt`、`ld-decrypt-tool`、`unlock`
+2. **仅 Windows**：配置开机自启并尝试后台启动服务
+3. 安装结束会检查全局目录 / PATH；若命令找不到会打印修复步骤
+
+> Windows 若提示「不是内部或外部命令」：多半是 `%AppData%\npm` 不在 PATH，或当前 CMD 没刷新。  
+> 把该目录加入用户 Path 后**新开** CMD，或直接关掉窗口再开一个再试。
 
 ### 从系统卸载
 
@@ -61,9 +65,19 @@ npm run globalunstall
 ```shell
 # 安装
 npm install -g @zlhy7/ld-decrypt-tool
+
+# 开启开机自启（仅 Windows，可选）
+ld-decrypt-tool enable
+
+# 关闭开机自启
+ld-decrypt-tool disable
+
 # 卸载
 npm uninstall -g @zlhy7/ld-decrypt-tool
 ```
+
+> `npm install -g` **不会**自动开自启，需手动执行 `ld-decrypt-tool enable`。
+> 源码侧 `npm run globalinstall` 在 Windows 上会顺带尝试开启自启。
 ## 本地项目：编译 / 运行（可选）
 
 本项目为纯 Node.js 源码，**无需编译**。安装依赖后直接运行：
@@ -71,6 +85,7 @@ npm uninstall -g @zlhy7/ld-decrypt-tool
 ```shell
 npm start          # 生产方式启动 Web 服务
 npm run dev        # nodemon 热重启（开发）
+npm run smoke      # 推远程 / 发版前本地冒烟测试（推荐）
 ```
 
 全局安装（`npm run globalinstall`）后，也可用：
@@ -100,9 +115,14 @@ npm run publish:npm
 ### Web 界面启动
 
 ```shell
-ld-decrypt
-# 或
+# 前台启动（窗口保持；已在跑会提示）
 ld-decrypt-tool
+
+# 后台静默启动（已在跑会提示）
+ld-decrypt-tool start
+
+# 停止服务（未在跑会提示）
+ld-decrypt-tool stop
 ```
 ![](img/服务模式.png)
 
@@ -125,10 +145,10 @@ MONITORED_PATH=/path/to/watch
 MONITORED_DECRYPT_PATH=/path/to/decrypt
 ```
 
-默认（Windows 风格路径）：
+默认（Windows：优先 `D:`，没有 D 盘则用 `C:`）：
 
-- 监控：`D:/fileWatch`
-- 输出：`D:/fileWatch_解密`
+- 监控：`{盘符}/fileWatch`（如 `D:/fileWatch` 或 `C:/fileWatch`）
+- 输出：`{盘符}/fileWatch_解密`
 
 ### 解密方式三：命令行
 
@@ -147,19 +167,25 @@ unlock ./encrypted-dir/ ./decrypted-dir/
 | 变量 | 说明 | 默认 |
 |------|------|------|
 | `PORT` | Web 服务端口 | `3000` |
-| `MONITORED_PATH` | 监控源目录 | `D:/fileWatch` |
-| `MONITORED_DECRYPT_PATH` | 解密输出目录 | `D:/fileWatch_解密` |
+| `MONITORED_PATH` | 监控源目录 | Windows：`D:/fileWatch`（无 D 则 `C:/fileWatch`） |
+| `MONITORED_DECRYPT_PATH` | 解密输出目录 | Windows：`D:/fileWatch_解密`（无 D 则 `C:/...`） |
 
 ### 开机自启（仅 Windows）
 
-- `npm run globalinstall`：注册全局命令，并在 Windows 写入启动项 / 任务计划
-- `npm run globalunstall`：移除全局命令，并清除 Windows 自启配置
-- macOS / Linux：只处理全局命令，不涉及自启
-- 手动补配自启（Windows 管理员）：
-
 ```shell
-node scripts/setup-autostart.js
+ld-decrypt-tool enable    # 开启自启；若服务未跑则同时后台静默启动（无黑窗，仅 Windows）
+ld-decrypt-tool disable   # 关闭自启
 ```
+
+说明：
+
+- 自启用 **VBS 隐藏窗口**（`WScript.Shell.Run ..., 0`），**不用 bat**（bat 会弹黑框）
+- `enable` 会自动删掉旧版 `ld-decrypt-tool.bat`，避免残留弹窗
+- `npm install -g` 后请手动 `enable`（不会自动开）
+- `npm run globalinstall`（源码）在 Windows 上会尝试自动 `enable`
+- `npm run globalunstall` / `disable` 都会清自启
+- macOS / Linux：`enable` / `disable` 会提示不支持并退出
+- 兼容旧入口：`node scripts/setup-autostart.js`（等同 `enable`）
 
 ## 注意事项
 
@@ -178,16 +204,30 @@ node scripts/setup-autostart.js
 npm install -g @zlhy7/ld-decrypt-tool
 ```
 
-### 3.启动前端服务(可选)
-> 前端服务主要用于查看解密日志和配置监控目录，如果不需要，可以跳过这一步。但是就没有监控目录功能了。
-
-> 保持cmd窗口打开，不要关闭，否则服务会停止。
-
+### 3.开机自启（可选，仅 Windows）
 ```shell
-ld-decrypt-tool
+# 开启自启；若当前服务未跑，会同时后台静默启动（无黑窗）
+ld-decrypt-tool enable
+
+# 关闭自启
+ld-decrypt-tool disable
 ```
 
-### 4.命令行解密
+### 4.启动 / 停止服务
+> Web 服务用于查看解密日志和配置监控目录；纯命令行 `unlock` 可不启服务。
+
+```shell
+# 前台启动（关掉窗口即停；已在跑会提示）
+ld-decrypt-tool
+
+# 后台静默启动（无黑窗；已在跑会提示）
+ld-decrypt-tool start
+
+# 停止服务（未在跑会提示）
+ld-decrypt-tool stop
+```
+
+### 5.命令行解密
 ```shell
 # 解密单个文件
 unlock ./encrypted-file.txt

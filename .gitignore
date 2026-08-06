@@ -8,3 +8,6 @@ dist/
 uploads/
 decrypted/
 *.log
+# 开机自启生成的临时脚本
+lib/start-hidden.vbs
+scripts/start-hidden.vbs

@@ -1,6 +1,6 @@
 {
   "name": "@zlhy7/ld-decrypt-tool",
-  "version": "1.0.3",
+  "version": "1.0.6",
   "description": "天锐绿盾文件解密工具 - 支持Web界面、命令行和目录监控多种交互方式",
   "main": "index.js",
   "scripts": {
@@ -8,6 +8,7 @@
     "dev": "nodemon index.js",
     "globalinstall": "node scripts/global-install.js",
     "globalunstall": "node scripts/global-uninstall.js",
+    "smoke": "node scripts/smoke-test.js",
     "publish:npm": "node scripts/publish-npm.js"
   },
   "bin": {

@@ -4,9 +4,13 @@ const multer = require('multer');
 const chokidar = require('chokidar');
 const fs = require('fs');
 const { decryptFile, decryptDirectory } = require('./lib/decrypt');
+const { getDefaultWatchPaths } = require('./lib/default-paths');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// 默认监控路径：Windows 优先 D 盘，无 D 则用 C；可用环境变量覆盖
+const defaultWatchPaths = getDefaultWatchPaths();
 
 // 全局错误处理中间件，确保API错误返回JSON格式
 app.use((err, req, res, next) => {
@@ -51,8 +55,8 @@ function addLog(message) {
 // 主页路由
 app.get('/', (req, res) => {
   res.render('index', {
-    sourceDir: process.env.MONITORED_PATH || 'D:/fileWatch',
-    targetDir: process.env.MONITORED_DECRYPT_PATH || 'D:/fileWatch_解密'
+    sourceDir: defaultWatchPaths.sourceDir,
+    targetDir: defaultWatchPaths.targetDir
   });
 });
 
@@ -120,13 +124,23 @@ const watchedDirs = new Map();
 function watchDirectory(sourceDir, targetDir) {
   // 确保源目录存在，如果不存在则创建
   if (!fs.existsSync(sourceDir)) {
-    fs.mkdirSync(sourceDir, { recursive: true });
-    addLog(`已创建源目录: ${sourceDir}`);
+    try {
+      fs.mkdirSync(sourceDir, { recursive: true });
+      addLog(`已创建源目录: ${sourceDir}`);
+    } catch (error) {
+      addLog(`创建源目录失败: ${sourceDir}，原因: ${error.message}`);
+      throw error;
+    }
   }
-  
+
   // 确保目标目录存在
   if (!fs.existsSync(targetDir)) {
-    fs.mkdirSync(targetDir, { recursive: true });
+    try {
+      fs.mkdirSync(targetDir, { recursive: true });
+    } catch (error) {
+      addLog(`创建目标目录失败: ${targetDir}，原因: ${error.message}`);
+      throw error;
+    }
   }
 
   const watcher = chokidar.watch(sourceDir, {
@@ -173,9 +187,12 @@ function watchDirectory(sourceDir, targetDir) {
   addLog(`开始监控目录: ${sourceDir} -> ${targetDir}`);
 }
 
-// 如果提供了环境变量，则启动目录监控
-const monitoredPath = process.env.MONITORED_PATH || 'D:/fileWatch';
-const monitoredDecryptPath = process.env.MONITORED_DECRYPT_PATH || 'D:/fileWatch_解密';
+// 启动默认目录监控（无环境变量时：Windows 有 D 用 D，否则用 C）
+const monitoredPath = defaultWatchPaths.sourceDir;
+const monitoredDecryptPath = defaultWatchPaths.targetDir;
+if (defaultWatchPaths.drive) {
+  addLog(`默认盘符: ${defaultWatchPaths.drive}（优先 D，无 D 则 C）`);
+}
 watchDirectory(monitoredPath, monitoredDecryptPath);
 
 // 动态配置监控目录
