@@ -1,20 +1,19 @@
 {
   "name": "@zlhy7/ld-decrypt-tool",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "天锐绿盾文件解密工具 - 支持Web界面、命令行和目录监控多种交互方式",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "postinstall": "node scripts/install-service.js",
-    "preuninstall": "node scripts/uninstall-service.js",
-    "build:win": "pkg . --targets node16-win-x64 --output ./dist/unlock-win.exe",
-    "build:all": "pkg . --targets node16-win-x64,node16-linux-x64,node16-macos-x64 --out-path ./dist/"
+    "globalinstall": "node scripts/global-install.js",
+    "globalunstall": "node scripts/global-uninstall.js",
+    "publish:npm": "node scripts/publish-npm.js"
   },
   "bin": {
-    "ld-decrypt": "./bin/ld-decrypt.js",
-    "unlock": "./bin/unlock.js",
-    "ld-decrypt-tool": "./bin/ld-decrypt.js"
+    "ld-decrypt": "bin/ld-decrypt.js",
+    "unlock": "bin/unlock.js",
+    "ld-decrypt-tool": "bin/ld-decrypt.js"
   },
   "keywords": [
     "decrypt",
@@ -48,8 +47,7 @@
     "ejs": "^3.1.8"
   },
   "devDependencies": {
-    "nodemon": "^2.0.20",
-    "pkg": "^5.8.1"
+    "nodemon": "^2.0.20"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

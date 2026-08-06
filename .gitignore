@@ -1,0 +1,10 @@
+.idea
+.DS_Store
+node_modules
+.vscode
+# 含 npm Token，勿提交
+.npmrc
+dist/
+uploads/
+decrypted/
+*.log
