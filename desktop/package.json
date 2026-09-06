@@ -9,7 +9,7 @@
     "smoke:packaged": "node scripts/packaged-smoke-test.js",
     "stage:core": "node scripts/stage-core.js",
     "pack:win": "npm run stage:core && electron-builder --dir --win --x64",
-    "dist:win": "npm run stage:core && electron-builder --win portable --x64"
+    "dist:win": "npm run stage:core && electron-builder --win portable --x64 --publish never"
   },
   "devDependencies": {
     "electron": "44.2.0",
