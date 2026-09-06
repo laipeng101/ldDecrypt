@@ -4,6 +4,7 @@ const fs = require('fs');
 const http = require('http');
 const os = require('os');
 const path = require('path');
+const { isAllowedNavigation } = require('../src/navigation-policy');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const CORE_ENTRY = path.join(ROOT, 'index.js');
@@ -19,6 +20,30 @@ function assert(name, ok, detail) {
     failed += 1;
     console.log(`  [FAIL] ${name}${detail ? ` — ${detail}` : ''}`);
   }
+}
+
+function assertNavigationPolicy() {
+  const allowedOrigin = 'http://127.0.0.1:41255';
+  assert(
+    'Navigation policy allows exact same origin',
+    isAllowedNavigation(`${allowedOrigin}/monitor`, allowedOrigin)
+  );
+  assert(
+    'Navigation policy blocks different loopback port',
+    !isAllowedNavigation('http://127.0.0.1:41256/monitor', allowedOrigin)
+  );
+  assert(
+    'Navigation policy blocks different host',
+    !isAllowedNavigation('http://localhost:41255/monitor', allowedOrigin)
+  );
+  assert(
+    'Navigation policy blocks HTTPS origin',
+    !isAllowedNavigation('https://127.0.0.1:41255/monitor', allowedOrigin)
+  );
+  assert(
+    'Navigation policy blocks file URL',
+    !isAllowedNavigation('file:///C:/monitor.html', allowedOrigin)
+  );
 }
 
 function getHttpCode(url) {
@@ -42,6 +67,7 @@ async function main() {
   assert('desktop package is private', packageJson.private === true);
   assert('Electron version is exact', packageJson.devDependencies.electron === '44.2.0');
   assert('Core entry is repo root', fs.existsSync(CORE_ENTRY));
+  assertNavigationPolicy();
 
   const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ld-desktop-smoke-'));
   process.env.HOST = '127.0.0.1';

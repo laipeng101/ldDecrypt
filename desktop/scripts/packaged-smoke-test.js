@@ -110,11 +110,46 @@ async function main() {
     return current && current.windowLoaded ? current : null;
   }, 30000);
 
+  report = await waitUntil(() => {
+    const current = readReport(reportPath);
+    return current && current.monitorLoaded ? current : null;
+  }, 30000);
+
   assert('Core ready event', report.coreReady === true);
   assert('single Core ready event', report.coreReadyCount === 1, `count=${report.coreReadyCount}`);
   assert('Core binds localhost', report.host === '127.0.0.1' && report.port > 0, `${report.host}:${report.port}`);
   assert('runtime stays in userData/runtime', report.runtimeDataIsolated === true);
+  assert('Root Renderer loaded', report.rootLoaded === true);
   assert('BrowserWindow loaded', report.windowLoaded === true);
+  assert(
+    'Monitor DOM navigation allowed',
+    report.monitorNavigationAllowed === true,
+    report.monitorUrl
+  );
+  assert(
+    'Monitor Renderer loaded',
+    report.monitorLoaded === true &&
+      report.monitorUrl === `http://127.0.0.1:${report.port}/monitor`
+  );
+  assert('Monitor UI loaded', report.monitorTitle === '监控日志', report.monitorTitle);
+
+  report = await waitUntil(() => {
+    const current = readReport(reportPath);
+    return current && current.externalNavigationBlocked ? current : null;
+  }, 5000);
+  assert(
+    'External page navigation blocked',
+    report.externalNavigationBlocked === true &&
+      report.navigationAllowed === false &&
+      report.navigationUrl === 'https://example.invalid/',
+    report.navigationUrl
+  );
+
+  report = await waitUntil(() => {
+    const current = readReport(reportPath);
+    return current && current.cspApplied ? current : null;
+  }, 5000);
+  assert('CSP applied to main frame', report.cspApplied === true);
 
   const response = await fetch(`${baseUrl}/`);
   assert('packaged Web UI responds', response.status === 200, `code=${response.status}`);
