@@ -2,6 +2,47 @@
 
 基于 Node.js 的绿盾加密文件解密工具。利用本机已安装的绿盾客户端权限，读取加密文件并写出解密副本。提供 Web 界面、REST API、目录监控与命令行多种交互方式。
 
+## Windows Desktop 版（推荐）
+
+本仓库 fork 自 [zlhy7/ldDecrypt](https://github.com/zlhy7/ldDecrypt)。Desktop、Portable Release 和 CI/CD 是本 fork 的扩展；原有 Web / REST API、目录监控和 CLI 解密能力保持与上游兼容。
+
+普通 Windows 用户可以从 [Latest Release](https://github.com/laipeng101/ldDecrypt/releases/latest) 下载：
+
+`ldDecrypt-*-win-x64-portable.exe`
+
+`.sha256` 文件用于校验下载文件完整性。请勿把 Release 页中的 Source code zip/tar.gz 当作 Windows 程序。
+
+- 适用：Windows 11 x64；无需安装
+- Desktop 已包含运行所需环境，无需单独安装 Node.js/npm
+- 启动时临时启动本机 Web Core，仅监听 `127.0.0.1`，端口由系统分配
+- 正常关闭窗口时，Web Core 和目录监听随应用退出；不设计为托盘或后台常驻服务
+- 不注册 Windows Service、不配置开机自启、不提供托盘常驻
+- Core 运行数据在 `%APPDATA%\lddecrypt-desktop\runtime`；Electron/Chromium 缓存仍在应用自身 userData 中
+- 当前 EXE 未配置 Authenticode 代码签名，Windows 可能显示“未知发布者”或 SmartScreen 提示；请确认下载来源并使用 SHA256 校验
+
+| 模式 | 适合 | Node.js | 后台 | 启动方式 |
+| --- | --- | --- | --- | --- |
+| Desktop Portable | 日常临时使用 | 不需要单独安装 | 不常驻 | 双击 EXE |
+| CLI / Web 源码模式 | 自动化、API、长时间监听 | 需要 | 可自行配置 | npm / `ld-decrypt-tool` |
+
+校验示例：
+
+```powershell
+Get-ChildItem .\ldDecrypt-*-win-x64-portable.exe |
+  Get-FileHash -Algorithm SHA256
+```
+
+将输出值与 Release 中对应 `.sha256` 文件比较。
+
+使用步骤：
+
+1. 打开 [Latest Release](https://github.com/laipeng101/ldDecrypt/releases/latest)
+2. 下载 Portable EXE
+3. 双击运行，在应用窗口使用 Web UI
+4. 使用完成后直接关闭窗口
+
+更多下载、生命周期、数据目录、校验与开发说明见 [Desktop 详细说明](desktop/README.md)。
+
 - 包名：`@zlhy7/ld-decrypt-tool`
 - Node 要求：`>= 22`（推荐 `v24.20.0 LTS`）
 - 仓库：[gitee.com/zlhy7/ldDecrypt](https://gitee.com/zlhy7/ldDecrypt)
@@ -30,6 +71,9 @@
 5. **跨平台脚本** — `globalinstall` / `globalunstall` / `publish:npm` 在 Win / macOS / Linux 均可执行
 
 ## 安装服务
+
+以下章节为源码 / npm / CLI 模式；Desktop Portable 用户无需执行这些安装步骤。
+
 ### 方式一：本地项目安装
 拉取源码后，执行安装命令
 ```shell
