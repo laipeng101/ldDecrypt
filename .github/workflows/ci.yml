@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - desktop
+  push:
+    branches:
+      - desktop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci-windows:
+    name: ci-windows
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Show runtime versions
+        run: |
+          node --version
+          npm --version
+        shell: pwsh
+
+      - name: Test root Core
+        run: |
+          npm ci
+          npm ls --depth=0
+          npm audit
+          npm audit --omit=dev
+          npm run smoke
+        shell: pwsh
+
+      - name: Test desktop
+        run: |
+          npm ci
+          npm ls --depth=0
+          npm audit
+          npm run smoke
+        shell: pwsh
+        working-directory: desktop
+
+      - name: Build Windows portable executable
+        run: npm run dist:win
+        shell: pwsh
+        working-directory: desktop
+
+      - name: Run packaged portable smoke
+        run: node scripts/packaged-smoke-test.js "dist/ldDecrypt-$(node -p "require('./package.json').version")-win-x64-portable.exe"
+        shell: pwsh
+        working-directory: desktop
+
+      - name: Upload PR portable artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v7
+        with:
+          name: lddecrypt-pr-${{ github.event.pull_request.number }}-win-x64
+          path: desktop/dist/*.exe
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+      - name: Write CI summary
+        run: |
+          $nodeVersion = node --version
+          $npmVersion = npm --version
+          $artifactName = Get-ChildItem -Path 'desktop/dist/*.exe' |
+            Select-Object -First 1 |
+            ForEach-Object { $_.Name }
+
+          @"
+          ## CI Result
+
+          - Node: $nodeVersion
+          - npm: $npmVersion
+          - Core smoke: PASS
+          - Desktop smoke: PASS
+          - Portable build: PASS
+          - Packaged portable smoke: PASS
+          - Artifact filename: $artifactName
+          "@ >> $env:GITHUB_STEP_SUMMARY
+        shell: pwsh

@@ -1,0 +1,165 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, must match desktop/package.json'
+        required: true
+        type: string
+      dry_run:
+        description: 'Build and validate without creating GitHub Release'
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release-windows
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Guard release branch
+        if: github.ref_name != 'desktop'
+        run: |
+          Write-Host 'Formal releases must be built from the protected desktop branch.'
+          exit 1
+        shell: pwsh
+
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+
+      - name: Validate release version and tag
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:RELEASE_VERSION -notmatch '^[0-9]+\.[0-9]+\.[0-9]+$') {
+            Write-Error 'Release version must be stable SemVer in x.y.z format.'
+          }
+
+          $desktopVersion = node -p "require('./desktop/package.json').version"
+          $coreVersion = node -p "require('./package.json').version"
+          $tag = "desktop-v$desktopVersion"
+
+          if ($env:RELEASE_VERSION -ne $desktopVersion) {
+            Write-Error "Input version $($env:RELEASE_VERSION) does not match desktop version $desktopVersion."
+          }
+
+          $existingTag = git ls-remote --tags origin "refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error 'Unable to check remote release tags.'
+          }
+          if ($existingTag) {
+            Write-Error "Tag $tag already exists; release tags are immutable."
+          }
+
+          if ($inputs.dry_run -eq $false) {
+            $existingRelease = gh release view $tag --repo laipeng101/ldDecrypt 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Error "Release $tag already exists; releases are immutable."
+            }
+          }
+
+          "DESKTOP_VERSION=$desktopVersion" >> $env:GITHUB_ENV
+          "CORE_VERSION=$coreVersion" >> $env:GITHUB_ENV
+          "RELEASE_TAG=$tag" >> $env:GITHUB_ENV
+        shell: pwsh
+
+      - name: Test root Core
+        run: |
+          npm ci
+          npm ls --depth=0
+          npm audit
+          npm audit --omit=dev
+          npm run smoke
+        shell: pwsh
+
+      - name: Test desktop
+        run: |
+          npm ci
+          npm ls --depth=0
+          npm audit
+          npm run smoke
+        shell: pwsh
+        working-directory: desktop
+
+      - name: Build Windows portable executable
+        run: npm run dist:win
+        shell: pwsh
+        working-directory: desktop
+
+      - name: Run packaged portable smoke
+        run: node scripts/packaged-smoke-test.js "dist/ldDecrypt-$env:DESKTOP_VERSION-win-x64-portable.exe"
+        shell: pwsh
+        working-directory: desktop
+
+      - name: Generate SHA256 checksum
+        id: checksum
+        run: |
+          $exe = Get-Item -Path "desktop/dist/ldDecrypt-$env:DESKTOP_VERSION-win-x64-portable.exe" -ErrorAction Stop
+          $shaFile = "$($exe.FullName).sha256"
+          $hash = (Get-FileHash -Path $exe.FullName -Algorithm SHA256).Hash
+          "$hash  $($exe.Name)" | Set-Content -LiteralPath $shaFile -NoNewline -Encoding ascii
+          $signature = Get-AuthenticodeSignature -FilePath $exe.FullName
+
+          if ($signature.Status -notin @([System.Management.Automation.SignatureStatus]::NotSigned, [System.Management.Automation.SignatureStatus]::Valid)) {
+            Write-Error "Unexpected Authenticode status: $($signature.Status)"
+          }
+
+          "exe_path=$($exe.FullName)" >> $env:GITHUB_OUTPUT
+          "exe_name=$($exe.Name)" >> $env:GITHUB_OUTPUT
+          "sha_path=$shaFile" >> $env:GITHUB_OUTPUT
+          "sha_name=$($exe.Name).sha256" >> $env:GITHUB_OUTPUT
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          "authenticode=$($signature.Status)" >> $env:GITHUB_OUTPUT
+        shell: pwsh
+
+      - name: Create GitHub release
+        if: inputs.dry_run == false
+        run: |
+          gh release create $env:RELEASE_TAG `
+            "${{ steps.checksum.outputs.exe_path }}" `
+            "${{ steps.checksum.outputs.sha_path }}" `
+            --repo laipeng101/ldDecrypt `
+            --target $env:GITHUB_SHA `
+            --title "ldDecrypt Desktop v$env:DESKTOP_VERSION" `
+            --generate-notes `
+            --latest
+        shell: pwsh
+
+      - name: Write release summary
+        run: |
+          $releaseUrl = if ($inputs.dry_run -eq $true) {
+            'Skipped (dry run)'
+          } else {
+            gh release view $env:RELEASE_TAG --repo laipeng101/ldDecrypt --json url --jq .url
+          }
+
+          @"
+          ## Release Result
+
+          - Desktop version: $env:DESKTOP_VERSION
+          - Core version: $env:CORE_VERSION
+          - Commit SHA: $env:GITHUB_SHA
+          - Tag: $env:RELEASE_TAG
+          - Artifact: ${{ steps.checksum.outputs.exe_name }}
+          - SHA256: `${{ steps.checksum.outputs.sha256 }}`
+          - Authenticode: ${{ steps.checksum.outputs.authenticode }}
+          - Release URL: $releaseUrl
+          - Dry run: ${{ inputs.dry_run }}
+          "@ >> $env:GITHUB_STEP_SUMMARY
+        shell: pwsh
