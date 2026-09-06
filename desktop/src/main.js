@@ -7,17 +7,21 @@ const {
 } = require('electron');
 const fs = require('fs');
 const path = require('path');
+const { isAllowedNavigation } = require('./navigation-policy');
 
 let mainWindow = null;
 let coreChild = null;
 let isShuttingDown = false;
 let shutdownPromise = null;
+let pendingSecondInstanceFocus = false;
+let allowedOrigin = null;
+let smokeCloseTimer = null;
 const smokeEnabled = process.env.LDDECRYPT_DESKTOP_SMOKE === '1';
-const smokeReportPath = process.env.LDDECRYPT_DESKTOP_SMOKE_REPORT;
 const smokeCloseDelayMs = Number.parseInt(
   process.env.LDDECRYPT_DESKTOP_SMOKE_CLOSE_DELAY_MS || '1000',
   10
 );
+const smokeReportPath = process.env.LDDECRYPT_DESKTOP_SMOKE_REPORT;
 const smokeState = {
   coreReady: false,
   coreReadyCount: 0,
@@ -29,7 +33,12 @@ const smokeState = {
   coreExited: false,
   fallbackKillUsed: false,
   runtimeDataIsolated: false,
-  secondInstanceFocused: false
+  secondInstanceFocused: false,
+  rootLoaded: false,
+  monitorNavigationAllowed: false,
+  monitorLoaded: false,
+  externalNavigationBlocked: false,
+  cspApplied: false
 };
 
 if (!app.requestSingleInstanceLock()) {
@@ -42,7 +51,12 @@ if (!app.requestSingleInstanceLock()) {
       if (mainWindow.isMinimized()) {
         mainWindow.restore();
       }
+      if (!mainWindow.isVisible()) {
+        mainWindow.show();
+      }
       mainWindow.focus();
+    } else {
+      pendingSecondInstanceFocus = true;
     }
   });
 }
@@ -101,6 +115,7 @@ function handleCoreMessage(message) {
 
   if (message.type === 'ready' && !isShuttingDown) {
     smokeState.coreReadyCount += 1;
+    allowedOrigin = `http://127.0.0.1:${message.port}`;
     recordSmoke({
       coreReady: true,
       host: '127.0.0.1',
@@ -126,6 +141,52 @@ function handleCoreMessage(message) {
   }
 }
 
+function installContentSecurityPolicy() {
+  const csp = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+    "connect-src 'self'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'"
+  ].join('; ');
+
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    let responseUrl;
+
+    try {
+      responseUrl = new URL(details.url);
+    } catch {
+      callback({ responseHeaders: details.responseHeaders || {} });
+      return;
+    }
+
+    let responseHeaders = details.responseHeaders || {};
+    if (
+      details.resourceType === 'mainFrame' &&
+      responseUrl.origin === allowedOrigin
+    ) {
+      responseHeaders = {
+        ...responseHeaders,
+        'Content-Security-Policy': [csp],
+        'X-Content-Type-Options': ['nosniff'],
+        'Referrer-Policy': ['no-referrer']
+      };
+
+      if (smokeEnabled) {
+        smokeState.cspApplied = true;
+        recordSmoke();
+      }
+    }
+
+    callback({ responseHeaders });
+  });
+}
+
 function createMainWindow(port) {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -140,8 +201,50 @@ function createMainWindow(port) {
     }
   });
 
-  mainWindow.webContents.on('will-navigate', (event) => {
-    event.preventDefault();
+  mainWindow.webContents.on('will-navigate', (details) => {
+    const navigationAllowed = isAllowedNavigation(details.url, allowedOrigin);
+
+    if (smokeEnabled) {
+      recordSmoke({
+        navigationUrl: details.url,
+        navigationAllowed
+      });
+    }
+
+    if (!navigationAllowed) {
+      smokeState.externalNavigationBlocked = true;
+      recordSmoke();
+      if (smokeEnabled && smokeCloseTimer === null) {
+        smokeCloseTimer = setTimeout(() => {
+          mainWindow?.close();
+        }, smokeCloseDelayMs);
+      }
+      details.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.on('will-redirect', (details) => {
+    if (!isAllowedNavigation(details.url, allowedOrigin)) {
+      details.preventDefault();
+    }
+  });
+
+  mainWindow.webContents.on('did-fail-load', (
+    _event,
+    errorCode,
+    errorDescription,
+    validatedURL,
+    isMainFrame
+  ) => {
+    if (!isMainFrame || errorCode === -3 || isShuttingDown) {
+      return;
+    }
+
+    isShuttingDown = true;
+    showError(`主页面加载失败 (${errorCode}): ${errorDescription}\n${validatedURL}`);
+    stopCore().finally(() => {
+      app.quit();
+    });
   });
 
   mainWindow.webContents.on('will-attach-webview', (event) => {
@@ -154,15 +257,66 @@ function createMainWindow(port) {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+
+    if (pendingSecondInstanceFocus) {
+      pendingSecondInstanceFocus = false;
+      mainWindow.focus();
+    }
   });
 
-  mainWindow.webContents.once('did-finish-load', () => {
+  mainWindow.webContents.on('did-finish-load', () => {
     recordSmoke({ windowLoaded: true });
-    if (smokeEnabled) {
-      setTimeout(() => {
-        mainWindow?.close();
-      }, smokeCloseDelayMs);
+
+    if (!smokeEnabled) {
+      return;
     }
+
+    const currentUrl = mainWindow.webContents.getURL();
+    if (new URL(currentUrl).pathname !== '/monitor') {
+      recordSmoke({ rootLoaded: true });
+      mainWindow.webContents
+        .executeJavaScript(
+          `(() => {
+             const monitorLink = document.querySelector('a[href="/monitor"]');
+             if (!monitorLink) {
+               throw new Error('Monitor link not found');
+             }
+             monitorLink.click();
+           })();`
+        )
+        .catch((error) => {
+          recordSmoke({ smokeError: error.message });
+        });
+      return;
+    }
+
+    mainWindow.webContents
+      .executeJavaScript('document.title')
+      .then((monitorTitle) => {
+        recordSmoke({
+          monitorNavigationAllowed: true,
+          monitorLoaded: true,
+          monitorUrl: currentUrl,
+          monitorTitle
+        });
+
+        mainWindow.webContents
+          .executeJavaScript(
+            `(() => {
+               const externalLink = document.createElement('a');
+               externalLink.href = 'https://example.invalid/';
+               document.body.appendChild(externalLink);
+               externalLink.click();
+               externalLink.remove();
+             })();`
+          )
+          .catch((error) => {
+            recordSmoke({ smokeError: error.message });
+          });
+      })
+      .catch((error) => {
+        recordSmoke({ smokeError: error.message });
+      });
   });
 
   mainWindow.on('closed', () => {
@@ -266,6 +420,7 @@ app.whenReady().then(() => {
     callback(false);
   });
   session.defaultSession.setPermissionCheckHandler(() => false);
+  installContentSecurityPolicy();
 
   startCore();
 });

@@ -8,26 +8,54 @@ const desktopRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(desktopRoot, '..');
 const stageRoot = path.join(desktopRoot, '.build', 'core');
 
-function run(command, args, cwd) {
-  const executable = command;
-  const result = spawnSync(executable, args, {
+function resolveNpmCliPath() {
+  const environmentPath = process.env.npm_execpath;
+  if (
+    environmentPath &&
+    fs.existsSync(environmentPath) &&
+    fs.statSync(environmentPath).isFile()
+  ) {
+    return environmentPath;
+  }
+
+  const nodeRoot = path.dirname(process.execPath);
+  const candidates = [
+    path.join(nodeRoot, 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    path.join(nodeRoot, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    path.join(nodeRoot, '..', '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  ];
+  const candidate = candidates.find((item) => fs.existsSync(item));
+
+  if (!candidate) {
+    throw new Error('无法解析 npm CLI 入口。请通过 npm run 执行 stage:core。');
+  }
+
+  return candidate;
+}
+
+const npmCliPath = resolveNpmCliPath();
+
+function runNpm(args, cwd) {
+  const executable = process.execPath;
+  const commandArgs = [npmCliPath, ...args];
+  const result = spawnSync(executable, commandArgs, {
     cwd,
     stdio: 'pipe',
-    shell: process.platform === 'win32',
+    shell: false,
     encoding: 'utf8'
   });
 
   if (result.status !== 0) {
     console.error(result.stdout || '');
     console.error(result.stderr || '');
-    throw new Error(`命令失败: ${executable} ${args.join(' ')}`);
+    throw new Error(`命令失败: ${executable} ${commandArgs.join(' ')}`);
   }
 
   return result.stdout;
 }
 
 function copyPayloadFiles() {
-  const payloadJson = run('npm', ['pack', '--dry-run', '--json'], repoRoot);
+  const payloadJson = runNpm(['pack', '--dry-run', '--json'], repoRoot);
   const payload = JSON.parse(payloadJson);
   if (!Array.isArray(payload) || !Array.isArray(payload[0]?.files)) {
     throw new Error('npm pack 未返回有效文件清单。');
@@ -88,7 +116,7 @@ function assertStageLayout() {
 
 function verifyProductionTree() {
   const packageJson = require(path.join(stageRoot, 'package.json'));
-  const npmLsJson = run('npm', ['ls', '--omit=dev', '--depth=0', '--json'], stageRoot);
+  const npmLsJson = runNpm(['ls', '--omit=dev', '--depth=0', '--json'], stageRoot);
   const installed = JSON.parse(npmLsJson).dependencies || {};
   const installedNames = new Set(Object.keys(installed));
 
@@ -124,7 +152,7 @@ fs.mkdirSync(stageRoot, { recursive: true });
 
 copyPayloadFiles();
 fs.copyFileSync(path.join(repoRoot, 'package-lock.json'), path.join(stageRoot, 'package-lock.json'));
-run('npm', ['ci', '--omit=dev', '--no-audit', '--no-fund'], stageRoot);
+runNpm(['ci', '--omit=dev', '--no-audit', '--no-fund'], stageRoot);
 assertStageLayout();
 verifyProductionTree();
 
