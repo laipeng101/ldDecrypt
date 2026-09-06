@@ -1,13 +1,18 @@
 {
   "name": "lddecrypt-desktop",
-  "version": "0.0.0",
+  "version": "1.0.6",
   "private": true,
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "smoke": "node scripts/smoke-test.js"
+    "smoke": "node scripts/smoke-test.js",
+    "smoke:packaged": "node scripts/packaged-smoke-test.js",
+    "stage:core": "node scripts/stage-core.js",
+    "pack:win": "npm run stage:core && electron-builder --dir --win --x64",
+    "dist:win": "npm run stage:core && electron-builder --win portable --x64"
   },
   "devDependencies": {
-    "electron": "44.2.0"
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3"
   }
 }

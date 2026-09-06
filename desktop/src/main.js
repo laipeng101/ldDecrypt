@@ -2,6 +2,7 @@ const {
   app,
   BrowserWindow,
   dialog,
+  session,
   utilityProcess
 } = require('electron');
 const fs = require('fs');
@@ -11,6 +12,40 @@ let mainWindow = null;
 let coreChild = null;
 let isShuttingDown = false;
 let shutdownPromise = null;
+const smokeEnabled = process.env.LDDECRYPT_DESKTOP_SMOKE === '1';
+const smokeReportPath = process.env.LDDECRYPT_DESKTOP_SMOKE_REPORT;
+const smokeCloseDelayMs = Number.parseInt(
+  process.env.LDDECRYPT_DESKTOP_SMOKE_CLOSE_DELAY_MS || '1000',
+  10
+);
+const smokeState = {
+  coreReady: false,
+  coreReadyCount: 0,
+  host: null,
+  port: null,
+  windowLoaded: false,
+  gracefulShutdown: false,
+  coreStopped: false,
+  coreExited: false,
+  fallbackKillUsed: false,
+  runtimeDataIsolated: false,
+  secondInstanceFocused: false
+};
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    smokeState.secondInstanceFocused = true;
+    recordSmoke();
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.focus();
+    }
+  });
+}
 
 function getCoreRoot() {
   if (app.isPackaged) {
@@ -25,7 +60,25 @@ function getCoreEntry() {
 }
 
 function getRunnerEntry() {
+  if (app.isPackaged) {
+    return path.join(
+      process.resourcesPath,
+      'app.asar.unpacked',
+      'src',
+      'core-runner.js'
+    );
+  }
+
   return path.join(__dirname, 'core-runner.js');
+}
+
+function recordSmoke(update) {
+  if (!smokeEnabled || !smokeReportPath) {
+    return;
+  }
+
+  Object.assign(smokeState, update || {});
+  fs.writeFileSync(smokeReportPath, JSON.stringify(smokeState));
 }
 
 function getRuntimeDataDir() {
@@ -47,11 +100,24 @@ function handleCoreMessage(message) {
   }
 
   if (message.type === 'ready' && !isShuttingDown) {
+    smokeState.coreReadyCount += 1;
+    recordSmoke({
+      coreReady: true,
+      host: '127.0.0.1',
+      port: message.port,
+      runtimeDataIsolated: true
+    });
     createMainWindow(message.port);
     return;
   }
 
+  if (message.type === 'stopped') {
+    recordSmoke({ coreStopped: true });
+    return;
+  }
+
   if (message.type === 'fatal') {
+    recordSmoke({ fatalMessage: message.message || 'Core fatal' });
     showError(message.message);
     isShuttingDown = true;
     stopCore().finally(() => {
@@ -65,11 +131,38 @@ function createMainWindow(port) {
     width: 1280,
     height: 820,
     title: 'ldDecrypt',
-    show: false
+    show: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true
+    }
   });
+
+  mainWindow.webContents.on('will-navigate', (event) => {
+    event.preventDefault();
+  });
+
+  mainWindow.webContents.on('will-attach-webview', (event) => {
+    event.preventDefault();
+  });
+
+  mainWindow.webContents.setWindowOpenHandler(() => ({
+    action: 'deny'
+  }));
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+  });
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    recordSmoke({ windowLoaded: true });
+    if (smokeEnabled) {
+      setTimeout(() => {
+        mainWindow?.close();
+      }, smokeCloseDelayMs);
+    }
   });
 
   mainWindow.on('closed', () => {
@@ -94,6 +187,7 @@ function startCore() {
 
   const runtimeDir = getRuntimeDataDir();
   fs.mkdirSync(runtimeDir, { recursive: true });
+  recordSmoke({ runtimeDataIsolated: runtimeDir === path.join(app.getPath('userData'), 'runtime') });
 
   coreChild = utilityProcess.fork(
     getRunnerEntry(),
@@ -115,6 +209,7 @@ function startCore() {
 
   coreChild.on('exit', () => {
     coreChild = null;
+    recordSmoke({ coreExited: true, unexpectedCoreExit: !isShuttingDown });
 
     if (!isShuttingDown) {
       isShuttingDown = true;
@@ -145,12 +240,17 @@ function stopCore() {
       isShuttingDown = true;
       const child = coreChild;
       const timeout = setTimeout(() => {
+        smokeState.fallbackKillUsed = true;
         child.kill();
         resolve();
       }, 5000);
 
+      recordSmoke({ gracefulShutdown: true });
+
       child.once('exit', () => {
         clearTimeout(timeout);
+        coreChild = null;
+        recordSmoke({ coreExited: true });
         resolve();
       });
 
@@ -162,6 +262,11 @@ function stopCore() {
 }
 
 app.whenReady().then(() => {
+  session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
+    callback(false);
+  });
+  session.defaultSession.setPermissionCheckHandler(() => false);
+
   startCore();
 });
 
@@ -178,4 +283,8 @@ app.on('before-quit', (event) => {
       app.quit();
     });
   }
+});
+
+app.on('will-quit', () => {
+  recordSmoke();
 });

@@ -1,0 +1,34 @@
+appId: io.github.laipeng101.lddecrypt
+productName: ldDecrypt
+
+asar: true
+
+directories:
+  output: dist
+
+files:
+  - package.json
+  - src/**/*
+
+asarUnpack:
+  - src/core-runner.js
+
+extraResources:
+  - from: .build/core
+    to: core
+    filter:
+      - "**/*"
+  - from: .build/core/node_modules
+    to: core/node_modules
+    filter:
+      - "**/*"
+
+win:
+  executableName: ldDecrypt
+  target:
+    - target: portable
+      arch:
+        - x64
+
+portable:
+  artifactName: ldDecrypt-${version}-win-${arch}-portable.${ext}
