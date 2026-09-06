@@ -68,9 +68,21 @@ jobs:
           }
 
           if ('${{ inputs.dry_run }}' -eq 'false') {
-            $existingRelease = gh release view $tag --repo laipeng101/ldDecrypt 2>$null
+            $releaseJson = (
+              gh release list `
+                --repo laipeng101/ldDecrypt `
+                --limit 1000 `
+                --json tagName
+            ) -join "`n"
+
             if ($LASTEXITCODE -eq 0) {
-              Write-Error "Release $tag already exists; releases are immutable."
+              $existingReleases = @($releaseJson | ConvertFrom-Json)
+
+              if ($existingReleases.tagName -contains $tag) {
+                throw "Release $tag already exists; releases are immutable."
+              }
+            } else {
+              throw 'Unable to check existing GitHub releases.'
             }
           }
 
