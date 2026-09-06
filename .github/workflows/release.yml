@@ -67,7 +67,7 @@ jobs:
             Write-Error "Tag $tag already exists; release tags are immutable."
           }
 
-          if ($inputs.dry_run -eq $false) {
+          if ('${{ inputs.dry_run }}' -eq 'false') {
             $existingRelease = gh release view $tag --repo laipeng101/ldDecrypt 2>$null
             if ($LASTEXITCODE -eq 0) {
               Write-Error "Release $tag already exists; releases are immutable."
@@ -143,7 +143,7 @@ jobs:
 
       - name: Write release summary
         run: |
-          $releaseUrl = if ($inputs.dry_run -eq $true) {
+          $releaseUrl = if ('${{ inputs.dry_run }}' -eq 'true') {
             'Skipped (dry run)'
           } else {
             gh release view $env:RELEASE_TAG --repo laipeng101/ldDecrypt --json url --jq .url
