@@ -5,9 +5,11 @@ const chokidar = require('chokidar');
 const fs = require('fs');
 const { decryptFile, decryptDirectory } = require('./lib/decrypt');
 const { getDefaultWatchPaths } = require('./lib/default-paths');
+const { getUploadDir, getDecryptedDir } = require('./lib/runtime-paths');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST;
 
 // 默认监控路径：Windows 优先 D 盘，无 D 则用 C；可用环境变量覆盖
 const defaultWatchPaths = getDefaultWatchPaths();
@@ -27,13 +29,15 @@ app.use((err, req, res, next) => {
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 
-// 静态文件服务
-app.use(express.static('public'));
+// 静态程序资源固定从包根读取，不受运行 cwd 影响
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // 配置multer用于文件上传
-const upload = multer({ dest: 'uploads/' });
+const uploadDir = getUploadDir();
+fs.mkdirSync(uploadDir, { recursive: true });
+const upload = multer({ dest: uploadDir });
 
 let logMessages = [];
 let currentWatchers = [];
@@ -68,7 +72,7 @@ app.post('/api/decrypt', upload.single('file'), async (req, res) => {
     }
 
     const inputFile = req.file.path;
-    const outputFile = path.join('decrypted', path.basename(req.file.originalname));
+    const outputFile = path.join(getDecryptedDir(), path.basename(req.file.originalname));
     
     // 确保输出目录存在
     const outputDir = path.dirname(outputFile);
@@ -114,9 +118,13 @@ app.get('/monitor', (req, res) => {
 });
 
 // 启动服务器
-const server = app.listen(PORT, () => {
-  addLog(`服务器运行在端口 ${PORT}`);
-});
+const server = HOST
+  ? app.listen(PORT, HOST, () => {
+      addLog(`服务器运行在 http://${HOST}:${PORT}`);
+    })
+  : app.listen(PORT, () => {
+      addLog(`服务器运行在端口 ${PORT}`);
+    });
 
 // 目录监控功能
 const watchedDirs = new Map();
@@ -267,5 +275,38 @@ app.get('/api/watch', (req, res) => {
   res.json({ watchers });
 });
 
-// 导出函数供CLI使用
-module.exports = { app, server, watchDirectory, addLog };
+// 导出函数供CLI与宿主进程使用
+let shutdownPromise = null;
+
+/**
+ * 停止 HTTP 服务并关闭监控，可被宿主进程复用
+ * @returns {Promise<void>}
+ */
+function shutdown() {
+  if (!shutdownPromise) {
+    shutdownPromise = (async () => {
+      const watchers = currentWatchers;
+      currentWatchers = [];
+      await Promise.allSettled(watchers.map(({ sourceDir, targetDir, watcher }) => {
+        return watcher.close().catch((error) => {
+          addLog(`停止监控目录时出错: ${sourceDir} -> ${targetDir}, 错误: ${error.message}`);
+        });
+      }));
+
+      await new Promise((resolve) => {
+        server.close(resolve);
+      });
+
+      watchedDirs.clear();
+      watcherLogHeaders.clear();
+    })();
+    shutdownPromise.catch(() => {});
+    shutdownPromise.finally(() => {
+      shutdownPromise = null;
+    });
+  }
+
+  return shutdownPromise;
+}
+
+module.exports = { app, server, watchDirectory, addLog, shutdown };
