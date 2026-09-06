@@ -163,24 +163,15 @@ async function main() {
   console.log('');
   console.log('--- 打包内容 ---');
   {
+    // 2>&1 合并 stderr（npm notice 走 stderr）；execSync 自带 shell，Windows 下可靠
     let packOut = '';
     try {
-      packOut = execSync('npm pack --dry-run', {
+      packOut = execSync('npm pack --dry-run 2>&1', {
         cwd: ROOT,
         encoding: 'utf8'
       });
     } catch (e) {
-      packOut = `${e.stdout || ''}${e.stderr || ''}${e.message || ''}`;
-    }
-    // npm notice 走 stderr，一并拼上
-    try {
-      const r = spawnSync('npm', ['pack', '--dry-run'], {
-        cwd: ROOT,
-        encoding: 'utf8'
-      });
-      packOut = `${r.stdout || ''}${r.stderr || ''}`;
-    } catch (_) {
-      // 上面已有 fallback
+      packOut = `${e.stderr || ''}${e.message || ''}`;
     }
     assert('包含 lib/service.js', /lib\/service\.js/.test(packOut));
     assert('包含 lib/autostart.js', /lib\/autostart\.js/.test(packOut));

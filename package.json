@@ -39,16 +39,16 @@
     "url": "https://gitee.com/zlhy7/ldDecrypt/issues"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=22.0.0"
   },
   "dependencies": {
-    "express": "^4.18.2",
-    "chokidar": "^3.5.3",
-    "multer": "^1.4.5-lts.1",
-    "ejs": "^3.1.8"
+    "chokidar": "^4.0.3",
+    "ejs": "^6.0.1",
+    "express": "^5.2.1",
+    "multer": "^2.3.0"
   },
   "devDependencies": {
-    "nodemon": "^2.0.20"
+    "nodemon": "^3.1.14"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org",

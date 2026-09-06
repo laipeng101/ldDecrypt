@@ -3,7 +3,7 @@
 基于 Node.js 的绿盾加密文件解密工具。利用本机已安装的绿盾客户端权限，读取加密文件并写出解密副本。提供 Web 界面、REST API、目录监控与命令行多种交互方式。
 
 - 包名：`@zlhy7/ld-decrypt-tool`
-- Node 要求：`>= 14.0.0`（推荐 `v16.13.2`）
+- Node 要求：`>= 22`（推荐 `v24.20.0 LTS`）
 - 仓库：[gitee.com/zlhy7/ldDecrypt](https://gitee.com/zlhy7/ldDecrypt)
 
 ## 参考项目
@@ -110,7 +110,7 @@ npm run publish:npm
 ### 前提
 
 - 电脑已安装并可正常使用绿盾环境，否则解密结果不可用
-- Node.js `>= 14` ,安装教程参考[Node.js 安装教程](https://shafulin.hitcard.cc/znote/views/notes/installation_tutorial/nodejs)
+- Node.js `>= 22`（推荐 `v24.20.0 LTS`），安装教程参考[Node.js 安装教程](https://shafulin.hitcard.cc/znote/views/notes/installation_tutorial/nodejs)
 
 ### Web 界面启动
 
@@ -195,7 +195,7 @@ ld-decrypt-tool disable   # 关闭自启
 
 ### 1.安装nodejs
 
-`官直`[node-v24.19.0](https://nodejs.org/dist/v24.19.0/node-v24.19.0-x64.msi) | [nodejs官网](https://nodejs.org/zh-cn/download)
+`官直`[node-v24.20.0](https://nodejs.org/dist/v24.20.0/node-v24.20.0-x64.msi) | [nodejs官网](https://nodejs.org/zh-cn/download)
 
 安装时无脑下一步就行，安装完成后，在cmd中输入`node -v`，如果出现版本号，则说明安装成功。
 
