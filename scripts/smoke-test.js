@@ -141,11 +141,97 @@ function stopChild(child) {
  * @param {string} content
  * @returns {Promise<Response>}
  */
-function uploadFile(url, content) {
+async function uploadFile(url, content) {
   const form = new FormData();
   form.append('file', new Blob([content]), 'runtime-smoke.txt');
-  form.append('deleteFlag', '1');
-  return fetch(url, { method: 'POST', body: form });
+  const response = await fetch(url, { method: 'POST', body: form });
+  await response.arrayBuffer();
+  return response;
+}
+
+/**
+ * Upload a payload and return both the response and downloaded bytes.
+ * @param {string} url
+ * @param {Buffer|string} content
+ * @param {string} filename
+ * @param {string|undefined} deleteFlag
+ * @param {string} fieldName
+ * @returns {Promise<{response: Response, body: Buffer}>}
+ */
+async function postMultipart(url, content, filename, deleteFlag, fieldName = 'file') {
+  const form = new FormData();
+  form.append(fieldName, new Blob([content]), filename);
+  if (deleteFlag !== undefined) {
+    form.append('deleteFlag', deleteFlag);
+  }
+  const response = await fetch(url, { method: 'POST', body: form });
+  return {
+    response,
+    body: Buffer.from(await response.arrayBuffer())
+  };
+}
+
+/**
+ * @param {string} url
+ * @param {string} body
+ * @returns {Promise<{response: Response, body: Buffer}>}
+ */
+async function postJsonText(url, body) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body
+  });
+  return {
+    response,
+    body: Buffer.from(await response.arrayBuffer())
+  };
+}
+
+/**
+ * @param {Response} response
+ * @param {Buffer} body
+ * @returns {boolean}
+ */
+function isJsonError(response, body) {
+  if (!response.headers.get('content-type')?.includes('application/json')) {
+    return false;
+  }
+  try {
+    const errorBody = JSON.parse(body.toString('utf8'));
+    return typeof errorBody.error === 'string' && errorBody.error.length > 0 && !('stack' in errorBody);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {string} directory
+ * @returns {string[]}
+ */
+function regularFiles(directory) {
+  if (!fs.existsSync(directory) || !fs.statSync(directory).isDirectory()) {
+    return [];
+  }
+  return fs.readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name);
+}
+
+/**
+ * @param {() => boolean} predicate
+ * @param {number} [timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+async function waitForCondition(predicate, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  return predicate();
 }
 
 async function main() {
@@ -199,7 +285,7 @@ async function main() {
   const defaultDir = path.join(runtimeDir, 'default');
   const isolatedDir = path.join(runtimeDir, 'isolated');
   const publicDir = path.join(ROOT, 'public');
-  const staticFile = path.join(publicDir, 'runtime-smoke.txt');
+  const staticFile = path.join(publicDir, `runtime-smoke-${path.basename(runtimeDir)}.txt`);
   let defaultCore = null;
   let isolatedCore = null;
   let hostCore = null;
@@ -223,7 +309,7 @@ async function main() {
     });
     const rootCode = await waitForHttp(`http://127.0.0.1:${defaultPort}/`);
     assert('alternate cwd 首页 HTTP 200', rootCode === 200, `code=${rootCode}`);
-    const staticCode = await httpCode(`http://127.0.0.1:${defaultPort}/runtime-smoke.txt`);
+    const staticCode = await httpCode(`http://127.0.0.1:${defaultPort}/${path.basename(staticFile)}`);
     assert('static path 不依赖 cwd', staticCode === 200, `code=${staticCode}`);
 
     const defaultUpload = await uploadFile(`http://127.0.0.1:${defaultPort}/api/decrypt`, 'default-data-ok');
@@ -240,7 +326,9 @@ async function main() {
       env: {
         ...process.env,
         PORT: String(isolatedPort),
-        LDDECRYPT_DATA_DIR: isolatedDir
+        LDDECRYPT_DATA_DIR: isolatedDir,
+        MONITORED_PATH: path.join(isolatedDir, 'watch-source'),
+        MONITORED_DECRYPT_PATH: path.join(isolatedDir, 'watch-target')
       },
       stdio: 'ignore'
     });
@@ -250,6 +338,145 @@ async function main() {
     assert('isolated upload HTTP 200', isolatedUpload.ok, `code=${isolatedUpload.status}`);
     assert('isolated uploads 在 data dir', fs.existsSync(path.join(isolatedDir, 'uploads')));
     assert('isolated decrypted 在 data dir', fs.existsSync(path.join(isolatedDir, 'decrypted')));
+    const isolatedUrl = `http://127.0.0.1:${isolatedPort}`;
+    const isolatedUploadsDir = path.join(isolatedDir, 'uploads');
+    const isolatedDecryptedDir = path.join(isolatedDir, 'decrypted');
+    assert('默认解密请求清理上传临时文件', await waitForCondition(() => regularFiles(isolatedUploadsDir).length === 0));
+    assert('默认解密请求清理传输临时文件', await waitForCondition(() => regularFiles(isolatedDecryptedDir).length === 0));
+
+    console.log('--- decrypt API lifecycle ---');
+    {
+      const retainedPayload = Buffer.from('retained payload for deleteFlag=0');
+      const retained = await postMultipart(
+        `${isolatedUrl}/api/decrypt`,
+        retainedPayload,
+        'retained-sample.bin',
+        '0'
+      );
+      const retainedDisposition = retained.response.headers.get('content-disposition') || '';
+      const retainedPath = path.join(isolatedDecryptedDir, 'retained-sample.bin');
+      assert('deleteFlag=0 HTTP 200', retained.response.status === 200);
+      assert('deleteFlag=0 response payload', retained.body.equals(retainedPayload));
+      assert('download filename 保持原文件名', /filename="?retained-sample\.bin"?/i.test(retainedDisposition), retainedDisposition);
+      assert('deleteFlag=0 保留解密文件', fs.existsSync(retainedPath));
+      assert('deleteFlag=0 保留内容正确', fs.existsSync(retainedPath) && fs.readFileSync(retainedPath).equals(retainedPayload));
+      assert('deleteFlag=0 清理上传临时文件', await waitForCondition(() => regularFiles(isolatedUploadsDir).length === 0));
+      assert('deleteFlag=0 仅保留指定文件', await waitForCondition(() => {
+        const files = regularFiles(isolatedDecryptedDir);
+        return files.length === 1 && files[0] === 'retained-sample.bin';
+      }));
+      assert('解密响应 Cache-Control no-store', retained.response.headers.get('cache-control') === 'no-store');
+
+      const transientPayload = Buffer.from('same filename without retention');
+      const transient = await postMultipart(`${isolatedUrl}/api/decrypt`, transientPayload, 'retained-sample.bin');
+      assert('未提供 deleteFlag 的同名请求响应正确', transient.response.status === 200 && transient.body.equals(transientPayload));
+      assert('同名默认请求清理上传临时文件', await waitForCondition(() => regularFiles(isolatedUploadsDir).length === 0));
+      assert('同名默认请求不覆盖或删除已保留文件', await waitForCondition(() => {
+        const files = regularFiles(isolatedDecryptedDir);
+        return files.length === 1 && files[0] === 'retained-sample.bin' && fs.readFileSync(retainedPath).equals(retainedPayload);
+      }));
+      fs.rmSync(retainedPath, { force: true });
+    }
+
+    console.log('--- same-name concurrency ---');
+    {
+      const concurrentPayloads = Array.from({ length: 6 }, (_, index) => Buffer.alloc(128 * 1024 + index * 1024, index + 1));
+      const concurrentResults = await Promise.allSettled(concurrentPayloads.map((payload) => postMultipart(
+        `${isolatedUrl}/api/decrypt`,
+        payload,
+        'same-name.bin',
+        '1'
+      )));
+      assert('same-name 并发请求全部成功', concurrentResults.every((result) => result.status === 'fulfilled' && result.value.response.status === 200));
+      assert('same-name 并发响应保持隔离且无损坏', concurrentResults.every((result, index) => result.status === 'fulfilled' && result.value.body.equals(concurrentPayloads[index])));
+      assert('same-name 并发下载名与 no-store 正确', concurrentResults.every((result) => result.status === 'fulfilled' &&
+        /filename="?same-name\.bin"?/i.test(result.value.response.headers.get('content-disposition') || '') &&
+        result.value.response.headers.get('cache-control') === 'no-store'));
+      assert('same-name 并发后无上传临时文件', await waitForCondition(() => regularFiles(isolatedUploadsDir).length === 0));
+      assert('same-name 并发后无传输临时文件', await waitForCondition(() => regularFiles(isolatedDecryptedDir).length === 0));
+    }
+
+    console.log('--- API error handling ---');
+    {
+      const malformed = await postJsonText(`${isolatedUrl}/api/watch`, '{');
+      assert('malformed JSON 返回 HTTP 400', malformed.response.status === 400, `code=${malformed.response.status}`);
+      assert('malformed JSON 返回 JSON error', isJsonError(malformed.response, malformed.body));
+
+      const wrongField = await postMultipart(
+        `${isolatedUrl}/api/decrypt`,
+        'wrong multipart field',
+        'wrong-field.bin',
+        undefined,
+        'wrongField'
+      );
+      assert('Multer 错误返回 HTTP 400', wrongField.response.status === 400, `code=${wrongField.response.status}`);
+      assert('Multer 错误返回 JSON error', isJsonError(wrongField.response, wrongField.body));
+
+      const limitedForm = new FormData();
+      limitedForm.append('file', new Blob(['multipart structure limit']), 'limited.bin');
+      for (let index = 0; index < 5; index += 1) {
+        limitedForm.append(`extra${index}`, String(index));
+      }
+      const limitedResponse = await fetch(`${isolatedUrl}/api/decrypt`, {
+        method: 'POST',
+        body: limitedForm
+      });
+      const limitedBody = Buffer.from(await limitedResponse.arrayBuffer());
+      assert('multipart 结构超限返回 HTTP 400', limitedResponse.status === 400, `code=${limitedResponse.status}`);
+      assert('multipart 结构超限返回 JSON error', isJsonError(limitedResponse, limitedBody));
+
+      assert('malformed JSON 后 Core 仍存活', await httpCode(`${isolatedUrl}/`) === 200);
+      assert('上传错误后 Core 仍存活', await httpCode(`${isolatedUrl}/api/logs`) === 200);
+      assert('错误请求不残留上传文件', await waitForCondition(() => regularFiles(isolatedUploadsDir).length === 0));
+    }
+
+    console.log('--- retained copy failure cleanup ---');
+    {
+      const blockedRetainedPath = path.join(isolatedDecryptedDir, 'blocked-retained.bin');
+      fs.mkdirSync(blockedRetainedPath);
+      try {
+        const failedCopy = await postMultipart(`${isolatedUrl}/api/decrypt`, 'decrypted before copy failure', 'blocked-retained.bin', '0');
+        assert('保留副本写入失败返回 HTTP 500 JSON', failedCopy.response.status === 500 && isJsonError(failedCopy.response, failedCopy.body));
+        assert('保留副本失败清理上传临时文件', await waitForCondition(() => regularFiles(isolatedUploadsDir).length === 0));
+        assert('保留副本失败清理已生成的解密明文', await waitForCondition(() => regularFiles(isolatedDecryptedDir).length === 0));
+        assert('保留副本失败后 Core 仍存活', await httpCode(`${isolatedUrl}/`) === 200 && await httpCode(`${isolatedUrl}/api/logs`) === 200);
+      } finally {
+        fs.rmdirSync(blockedRetainedPath);
+      }
+    }
+
+    console.log('--- failed decrypt cleanup ---');
+    {
+      await stopChild(isolatedCore);
+      isolatedCore = null;
+      const blockedDataRoot = path.join(runtimeDir, 'blocked-data');
+      fs.mkdirSync(blockedDataRoot, { recursive: true });
+      fs.writeFileSync(path.join(blockedDataRoot, 'decrypted'), 'not a directory');
+      const blockedPort = await getFreePort();
+      const blockedCore = spawn(process.execPath, [INDEX], {
+        cwd: ROOT,
+        env: {
+          ...process.env,
+          PORT: String(blockedPort),
+          LDDECRYPT_DATA_DIR: blockedDataRoot,
+          MONITORED_PATH: path.join(blockedDataRoot, 'watch-source'),
+          MONITORED_DECRYPT_PATH: path.join(blockedDataRoot, 'watch-target')
+        },
+        stdio: 'ignore'
+      });
+      try {
+        const blockedRoot = await waitForHttp(`http://127.0.0.1:${blockedPort}/`);
+        assert('输出目录失败前 Core 可启动', blockedRoot === 200, `code=${blockedRoot}`);
+        const failed = await postMultipart(`http://127.0.0.1:${blockedPort}/api/decrypt`, 'expected failure', 'failed.bin', '1');
+        assert('输出目录失败返回 HTTP 500', failed.response.status === 500, `code=${failed.response.status}`);
+        assert('失败请求返回 JSON', isJsonError(failed.response, failed.body));
+        assert('失败请求清理上传临时文件', await waitForCondition(() => regularFiles(path.join(blockedDataRoot, 'uploads')).length === 0));
+        assert('失败请求不修改输出目录占位文件', fs.readFileSync(path.join(blockedDataRoot, 'decrypted'), 'utf8') === 'not a directory');
+        assert('失败请求后 Core 仍存活', await httpCode(`http://127.0.0.1:${blockedPort}/`) === 200 && await httpCode(`http://127.0.0.1:${blockedPort}/api/logs`) === 200);
+      } finally {
+        await stopChild(blockedCore);
+      }
+    }
     await stopChild(isolatedCore);
     isolatedCore = null;
 
@@ -314,10 +541,15 @@ async function main() {
     await stopChild(isolatedCore);
     await stopChild(hostCore);
     try {
-      fs.rmSync(publicDir, { recursive: true, force: true });
+      fs.rmSync(staticFile, { force: true });
     } catch (_) {
       // Windows 文件句柄可能稍有延迟
     }
+    const cleanupRoot = path.resolve(runtimeDir);
+    if (!cleanupRoot.startsWith(path.join(path.resolve(os.tmpdir()), 'ld-runtime-'))) {
+      throw new Error(`拒绝清理测试目录以外的路径: ${cleanupRoot}`);
+    }
+    fs.rmSync(cleanupRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
 
   console.log('');

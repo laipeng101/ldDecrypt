@@ -14,17 +14,6 @@ const HOST = process.env.HOST;
 // 默认监控路径：Windows 优先 D 盘，无 D 则用 C；可用环境变量覆盖
 const defaultWatchPaths = getDefaultWatchPaths();
 
-// 全局错误处理中间件，确保API错误返回JSON格式
-app.use((err, req, res, next) => {
-  if (req.path.startsWith('/api/')) {
-    // API请求返回JSON错误
-    res.status(500).json({ error: err.message || '服务器内部错误' });
-  } else {
-    // 非API请求使用默认错误处理
-    next(err);
-  }
-});
-
 // 配置模板引擎
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -37,7 +26,15 @@ app.use(express.urlencoded({ extended: true }));
 // 配置multer用于文件上传
 const uploadDir = getUploadDir();
 fs.mkdirSync(uploadDir, { recursive: true });
-const upload = multer({ dest: uploadDir });
+const upload = multer({
+  dest: uploadDir,
+  // 单文件接口；为可选 deleteFlag 和额外表单字段留出余量，不限制文件大小。
+  limits: {
+    files: 1,
+    fields: 4,
+    parts: 5
+  }
+});
 
 let logMessages = [];
 let currentWatchers = [];
@@ -65,39 +62,43 @@ app.get('/', (req, res) => {
 });
 
 // API解密端点
-app.post('/api/decrypt', upload.single('file'), async (req, res) => {
+app.post('/api/decrypt', upload.single('file'), async (req, res, next) => {
+  let inputFile;
+  let transferOutput;
+  let requestError;
+
   try {
     if (!req.file) {
       return res.status(400).json({ error: '未提供文件' });
     }
 
-    const inputFile = req.file.path;
-    const outputFile = path.join(getDecryptedDir(), path.basename(req.file.originalname));
+    inputFile = req.file.path;
+    const originalName = path.basename(req.file.originalname);
+    const decryptedDir = getDecryptedDir();
+    transferOutput = path.join(decryptedDir, `${req.file.filename}.transfer`);
+    const retainedOutput = path.join(decryptedDir, originalName);
     
     // 确保输出目录存在
-    const outputDir = path.dirname(outputFile);
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
+    fs.mkdirSync(decryptedDir, { recursive: true });
+
+    await decryptFile(inputFile, transferOutput);
+    if (req.body.deleteFlag === '0') {
+      await fs.promises.copyFile(transferOutput, retainedOutput);
     }
+    addLog(`API解密完成: ${req.file.originalname} -> ${transferOutput}`);
 
-    await decryptFile(inputFile, outputFile);
-    addLog(`API解密完成: ${req.file.originalname} -> ${outputFile}`);
-
-    // 返回解密后的文件
-    res.download(outputFile, (err) => {
-      if (err) {
-        addLog(`下载文件出错: ${err.message}`);
-      }
-      
-      // 清理临时文件
-      fs.unlinkSync(req.file.path);
-      if (req.body.deleteFlag !== '0') {
-        fs.unlinkSync(outputFile);
-      }
-    });
+    // 返回解密后的文件；响应始终从请求独占的 transfer output 发送。
+    await downloadFile(res, transferOutput, originalName);
   } catch (error) {
     addLog(`API解密失败: ${error.message}`);
-    res.status(500).json({ error: error.message });
+    requestError = error;
+  } finally {
+    await removeFileIfPresent(inputFile, '上传临时文件');
+    await removeFileIfPresent(transferOutput, '临时解密输出');
+  }
+
+  if (requestError) {
+    return next(requestError);
   }
 });
 
@@ -116,15 +117,6 @@ app.post('/api/clear-logs', (req, res) => {
 app.get('/monitor', (req, res) => {
   res.render('monitor');
 });
-
-// 启动服务器
-const server = HOST
-  ? app.listen(PORT, HOST, () => {
-      addLog(`服务器运行在 http://${HOST}:${PORT}`);
-    })
-  : app.listen(PORT, () => {
-      addLog(`服务器运行在端口 ${PORT}`);
-    });
 
 // 目录监控功能
 const watchedDirs = new Map();
@@ -275,6 +267,36 @@ app.get('/api/watch', (req, res) => {
   res.json({ watchers });
 });
 
+// API 错误处理中间件必须位于 body parser、路由和 Multer 之后。
+app.use((err, req, res, next) => {
+  if (!req.path.startsWith('/api/')) {
+    return next(err);
+  }
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  const status = Number(err.statusCode || err.status);
+  const clientStatus = err instanceof multer.MulterError
+    ? 400
+    : (Number.isInteger(status) && status >= 400 && status <= 599 ? status : 500);
+  const message = err instanceof multer.MulterError
+    ? `上传请求无效: ${err.message}`
+    : (err.message || '服务器内部错误');
+  addLog(`API错误: ${message}`);
+  return res.status(clientStatus).json({ error: message });
+});
+
+// 所有路由和错误处理中间件注册完成后再启动 HTTP 服务。
+const server = HOST
+  ? app.listen(PORT, HOST, () => {
+      addLog(`服务器运行在 http://${HOST}:${PORT}`);
+    })
+  : app.listen(PORT, () => {
+      addLog(`服务器运行在端口 ${PORT}`);
+    });
+
 // 导出函数供CLI与宿主进程使用
 let shutdownPromise = null;
 
@@ -307,6 +329,48 @@ function shutdown() {
   }
 
   return shutdownPromise;
+}
+
+/**
+ * 尝试删除请求拥有的临时文件。
+ * 不存在视为成功；其他错误记录日志但不向上抛出，避免清理失败影响 Core。
+ * @param {string|undefined} filePath
+ * @param {string} label
+ * @returns {Promise<void>}
+ */
+async function removeFileIfPresent(filePath, label) {
+  if (!filePath) {
+    return;
+  }
+
+  try {
+    await fs.promises.rm(filePath, { force: true });
+  } catch (error) {
+    addLog(`清理${label}失败: ${filePath}，原因: ${error.message}`);
+  }
+}
+
+/**
+ * 等待 res.download() 完成，以便在响应传输结束后再清理临时文件。
+ * @param {import('express').Response} res
+ * @param {string} filePath
+ * @param {string} downloadName
+ * @returns {Promise<void>}
+ */
+function downloadFile(res, filePath, downloadName) {
+  return new Promise((resolve, reject) => {
+    res.download(filePath, downloadName, {
+      headers: {
+        'Cache-Control': 'no-store'
+      }
+    }, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 module.exports = { app, server, watchDirectory, addLog, shutdown };
